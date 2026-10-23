@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Darts Kiosk Nachrichten</title>
+<meta name="theme-color" content="#1b2050">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Darts Kiosk">
+<meta name="referrer" content="no-referrer">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<style>
+  :root { --bg: #1b2050; --card: #262d66; --text: #fff; --muted: rgba(255,255,255,.7); --go: #5cd272; --on-go: #0b1a10; --bad: #ff6b6b; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+         font: 17px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         padding: max(24px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) 32px max(18px, env(safe-area-inset-left)); }
+  main { max-width: 440px; margin: 0 auto; display: grid; gap: 18px; }
+  header { display: flex; align-items: center; gap: 12px; }
+  header img { width: 44px; height: 44px; border-radius: 10px; }
+  h1 { font-size: 1.35rem; margin: 0; line-height: 1.2; }
+  .card { background: var(--card); border-radius: 16px; padding: 20px; display: grid; gap: 14px; }
+  .muted { color: var(--muted); font-size: .95rem; margin: 0; }
+  ol { margin: 0; padding-left: 22px; display: grid; gap: 8px; }
+  label { font-size: .9rem; color: var(--muted); display: grid; gap: 6px; }
+  input { font: inherit; padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,.25); background: rgba(0,0,0,.2); color: var(--text); }
+  button { font: inherit; font-weight: 700; padding: 15px; border-radius: 12px; border: 0; background: var(--go); color: var(--on-go); cursor: pointer; }
+  button:disabled { opacity: .6; }
+  .bad { color: var(--bad); font-weight: 600; margin: 0; }
+  .share { display: inline-block; padding: 0 6px; border: 1px solid var(--muted); border-radius: 6px; font-size: .85em; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="icon-192.png" alt="">
+    <h1>Nachrichten vom Darts Kiosk</h1>
+  </header>
+
+  <section class="card" id="missing" hidden>
+    <p>Diese Seite wird über den QR-Code am Darts Kiosk geöffnet: Verwaltung → Handy-Nachrichten → „Handy hinzufügen“.</p>
+  </section>
+
+  <section class="card" id="unsupported" hidden>
+    <p class="bad">Dieser Browser kann keine Benachrichtigungen empfangen.</p>
+    <p class="muted" id="unsupported-hint">Android: bitte in Chrome öffnen. iPhone: iOS 16.4 oder neuer und Safari nötig.</p>
+  </section>
+
+  <section class="card" id="ios" hidden>
+    <p>Beim iPhone erlaubt Apple Benachrichtigungen nur vom Home-Bildschirm aus:</p>
+    <ol>
+      <li>Unten auf <span class="share">Teilen</span> tippen.</li>
+      <li>„Zum Home-Bildschirm“ wählen und „Hinzufügen“.</li>
+      <li>Die neue App „Darts Kiosk“ auf dem Home-Bildschirm öffnen.</li>
+    </ol>
+  </section>
+
+  <section class="card" id="ask" hidden>
+    <p>Dieses Handy bekommt dann eine Nachricht, wenn Gäste das Personal rufen.</p>
+    <label>Name für dieses Handy
+      <input id="name" maxlength="40" autocomplete="off" placeholder="z. B. Anna">
+    </label>
+    <button id="go">Benachrichtigungen erlauben</button>
+    <p class="bad" id="error" hidden></p>
+    <p class="muted">Das Handy muss dafür im WLAN der Kneipe sein. Danach kommen die Nachrichten überall an.</p>
+  </section>
+
+  <section class="card" id="blocked" hidden>
+    <p class="bad">Benachrichtigungen sind für diese Seite gesperrt.</p>
+    <p class="muted">In den Einstellungen des Browsers (iPhone: Einstellungen → Mitteilungen → Darts Kiosk) erlauben und die Seite neu öffnen.</p>
+  </section>
+</main>
+<script>
+(function () {
+  'use strict';
+  var STORE = 'darts-kiosk-push';
+  var $ = function (id) { return document.getElementById(id); };
+  function show(id) { ['missing', 'unsupported', 'ios', 'ask', 'blocked'].forEach(function (x) { $(x).hidden = x !== id; }); }
+
+  // k: the kiosk's key, r: its address in the local network, c: pairing code (15 minutes)
+  var q = new URLSearchParams(location.search);
+  var p = { k: q.get('k'), r: q.get('r'), c: q.get('c') };
+  try {
+    if (p.k && p.r && p.c) localStorage.setItem(STORE, JSON.stringify(p));
+    else p = JSON.parse(localStorage.getItem(STORE) || '{}');
+  } catch (e) { /* private mode: the address still has it */ }
+
+  var kioskOk = /^http:\/\/(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|127\.|localhost)[^\s/?#]*$/.test(p.r || '');
+  if (!p.k || !p.c || !kioskOk) { show('missing'); return; }
+
+  var ua = navigator.userAgent;
+  var ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  var standalone = window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+  if (ios && !standalone) { show('ios'); return; }
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    show('unsupported'); return;
+  }
+  if (Notification.permission === 'denied') { show('blocked'); return; }
+  show('ask');
+  $('name').value = ios ? 'iPhone' : /Android/.test(ua) ? 'Android-Handy' : 'Handy';
+
+  function keyBytes(b64) {
+    var s = b64.replace(/-/g, '+').replace(/_/g, '/');
+    var bin = atob(s + '='.repeat((4 - s.length % 4) % 4));
+    return Uint8Array.from(bin, function (ch) { return ch.charCodeAt(0); });
+  }
+  function b64u(text) {
+    var bytes = new TextEncoder().encode(text), bin = '';
+    bytes.forEach(function (b) { bin += String.fromCharCode(b); });
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function sameKey(sub, key) {
+    var have = sub.options && sub.options.applicationServerKey;
+    if (!have) return false;
+    var a = new Uint8Array(have);
+    return a.length === key.length && a.every(function (v, i) { return v === key[i]; });
+  }
+
+  $('go').addEventListener('click', function () {
+    var btn = $('go');
+    btn.disabled = true;
+    $('error').hidden = true;
+    var key = keyBytes(p.k);
+    Notification.requestPermission().then(function (perm) {
+      if (perm !== 'granted') { show(perm === 'denied' ? 'blocked' : 'ask'); throw null; }
+      return navigator.serviceWorker.register('sw.js');
+    }).then(function () {
+      return navigator.serviceWorker.ready;
+    }).then(function (reg) {
+      return reg.pushManager.getSubscription().then(function (old) {
+        if (old && sameKey(old, key)) return old;
+        return (old ? old.unsubscribe() : Promise.resolve()).then(function () {
+          return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+        });
+      });
+    }).then(function (sub) {
+      var name = ($('name').value || '').trim().slice(0, 40);
+      // back to the kiosk in the local network, which stores the subscription
+      location.href = p.r + '/push-verbinden#c=' + encodeURIComponent(p.c) + '&s=' + b64u(JSON.stringify(sub.toJSON())) +
+        '&n=' + encodeURIComponent(name);
+    }).catch(function (err) {
+      btn.disabled = false;
+      if (err === null) return;
+      $('error').textContent = 'Hat nicht geklappt: ' + (err && err.message ? err.message : err);
+      $('error').hidden = false;
+    });
+  });
+})();
+</script>
+</body>
+</html>
