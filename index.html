@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Darts Kiosk Nachrichten</title>
 <meta name="theme-color" content="#1b2050">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Darts Kiosk">
 <meta name="referrer" content="no-referrer">
@@ -39,6 +40,12 @@
     <img src="icon-192.png" alt="">
     <h1>Nachrichten vom Darts Kiosk</h1>
   </header>
+
+  <section class="card" id="theke" hidden>
+    <p>Die Theke wird geöffnet …</p>
+    <button id="to-theke">Zur Theke</button>
+    <p class="muted">Klappt nur im WLAN der Kneipe.</p>
+  </section>
 
   <section class="card" id="missing" hidden>
     <p>Diese Seite wird über den QR-Code am Darts Kiosk geöffnet: Verwaltung → Handy-Nachrichten → „Handy hinzufügen“.</p>
@@ -78,18 +85,35 @@
   'use strict';
   var STORE = 'darts-kiosk-push';
   var $ = function (id) { return document.getElementById(id); };
-  function show(id) { ['missing', 'unsupported', 'ios', 'ask', 'blocked'].forEach(function (x) { $(x).hidden = x !== id; }); }
+  function show(id) { ['theke', 'missing', 'unsupported', 'ios', 'ask', 'blocked'].forEach(function (x) { $(x).hidden = x !== id; }); }
+  function load() { try { return JSON.parse(localStorage.getItem(STORE) || '{}'); } catch (e) { return {}; } }
+  function save(v) { try { localStorage.setItem(STORE, JSON.stringify(v)); } catch (e) { /* private mode */ } }
+  var LAN = /^http:\/\/(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|127\.|localhost)[^\s/?#]*$/;
 
   // k: the kiosk's key, r: its address in the local network, c: pairing code (15 minutes)
   var q = new URLSearchParams(location.search);
-  var p = { k: q.get('k'), r: q.get('r'), c: q.get('c') };
-  try {
-    if (p.k && p.r && p.c) localStorage.setItem(STORE, JSON.stringify(p));
-    else p = JSON.parse(localStorage.getItem(STORE) || '{}');
-  } catch (e) { /* private mode: the address still has it */ }
+  var stored = load();
+  var fresh = !!(q.get('k') && q.get('r') && q.get('c'));
+  var p = fresh ? { k: q.get('k'), r: q.get('r'), c: q.get('c') } : stored;
+  // a new QR code (other code than the one this phone was added with): add the phone again
+  var added = !!stored.done && (!fresh || q.get('c') === stored.c);
+  if (fresh && !added) save(p);
 
-  var kioskOk = /^http:\/\/(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|127\.|localhost)[^\s/?#]*$/.test(p.r || '');
-  if (!p.k || !p.c || !kioskOk) { show('missing'); return; }
+  function goTheke(base) {
+    show('theke');
+    var url = base + '/staff';
+    $('to-theke').onclick = function () { location.href = url; };
+    location.replace(url);
+  }
+  // a tap on a message, or this page opened again from the home screen: straight to the bar
+  var to = (q.get('to') || '').replace(/\/staff$/, '');
+  if (q.get('open') === 'theke' && (LAN.test(stored.r || '') || LAN.test(to))) {
+    goTheke(LAN.test(stored.r || '') ? stored.r : to);
+    return;
+  }
+  if (added && LAN.test(stored.r || '')) { goTheke(stored.r); return; }
+
+  if (!p.k || !p.c || !LAN.test(p.r || '')) { show('missing'); return; }
 
   var ua = navigator.userAgent;
   var ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
@@ -138,6 +162,8 @@
       });
     }).then(function (sub) {
       var name = ($('name').value || '').trim().slice(0, 40);
+      // remember it: next time this page (or the home screen icon) goes straight to the bar
+      save({ k: p.k, r: p.r, c: p.c, done: sub.endpoint });
       // back to the kiosk in the local network, which stores the subscription
       location.href = p.r + '/push-verbinden#c=' + encodeURIComponent(p.c) + '&s=' + b64u(JSON.stringify(sub.toJSON())) +
         '&n=' + encodeURIComponent(name);

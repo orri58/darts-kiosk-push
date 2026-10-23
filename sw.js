@@ -1,4 +1,4 @@
-// Shows the messages from the Darts Kiosk. Nothing else: no cache, no data.
+// Shows the messages from the Darts Kiosk; a tap opens the bar page. No cache, no data.
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
@@ -27,6 +27,14 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = event.notification.data && event.notification.data.url;
-  if (url) event.waitUntil(self.clients.openWindow(url));
+  // through this page (same site, also inside the iPhone home screen app); it forwards to the bar
+  const url = (event.notification.data && event.notification.data.url) || '';
+  const page = new URL('./?open=theke' + (url ? '&to=' + encodeURIComponent(url) : ''), self.registration.scope);
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      const own = list.find((c) => c.url.startsWith(self.registration.scope) && 'navigate' in c);
+      if (own) return own.focus().then((c) => (c || own).navigate(page.href)).catch(() => self.clients.openWindow(page.href));
+      return self.clients.openWindow(page.href);
+    }),
+  );
 });
